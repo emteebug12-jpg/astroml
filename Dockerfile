@@ -199,3 +199,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Default production command (can be overridden)
 CMD ["python", "-m", "astroml.ingestion"]
+
+# ============================================================================
+# TRAINING STAGE - Alias for training with GPU (uses training-base)
+# ============================================================================
+FROM training-base as training
+
+# This stage is used when GPU is available
+CMD ["python", "-m", "astroml.ingestion"]
