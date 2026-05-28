@@ -366,6 +366,9 @@ class ModelBenchmark:
         # Save results
         self._save_results(result)
         
+        # Save configuration with environment info for reproducibility
+        self._save_config()
+        
         if self.config.save_model:
             self._save_model()
             
@@ -388,6 +391,32 @@ class ModelBenchmark:
             json.dump(result_dict, f, indent=2)
         
         print(f"Results saved to {output_path}")
+    
+    def _save_config(self):
+        """Save benchmark configuration with environment info for reproducibility."""
+        from .utils import get_environment_info
+        
+        config_path = Path(self.config.output_dir) / "benchmark-config.yaml"
+        
+        # Create output directory if it doesn't exist
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Collect environment information
+        env_info = get_environment_info()
+        
+        # Build config dict with environment info
+        config_dict = {
+            'benchmark_config': self.config.to_dict(),
+            'environment': env_info,
+            'timestamp': time.time()
+        }
+        
+        # Save as YAML
+        import yaml
+        with open(config_path, 'w') as f:
+            yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+        
+        print(f"Configuration saved to {config_path}")
     
     def _save_model(self):
         """Save trained model."""
