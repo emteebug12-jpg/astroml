@@ -321,12 +321,42 @@ def main(cfg: DictConfig) -> None:
     logger.info("Configuration:")
     logger.info(OmegaConf.to_yaml(cfg))
     
-    # Set random seed
-    if cfg.experiment.seed is not None:
-        torch.manual_seed(cfg.experiment.seed)
+    # Set random seeds for reproducibility (#189). Hydra's `cfg.experiment.seed`
+    # remains the canonical source; a top-level `seed=` override on the CLI
+    # (e.g. `python train.py seed=42`) is automatically merged into the
+    # experiment group, so no explicit `--seed` flag is needed beyond Hydra's
+    # standard overrides. We additionally honour `ASTROML_SEED` as an env
+    # fallback for non-Hydra entrypoints.
+    env_seed = os.environ.get("ASTROML_SEED")
+    seed = cfg.experiment.seed
+    if seed is None and env_seed is not None:
+        try:
+            seed = int(env_seed)
+        except ValueError:
+            logger.warning(
+                "ASTROML_SEED is set but not an integer (%r); ignoring",
+                env_seed,
+            )
+
+    if seed is not None:
+        seed = int(seed)
+        logger.info("Setting deterministic seeds: %d", seed)
+        import random as _random
+
+        import numpy as _np
+
+        _random.seed(seed)
+        _np.random.seed(seed)
+        torch.manual_seed(seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed(cfg.experiment.seed)
-    
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            # Trade some throughput for reproducibility on GPU runs.
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        # Ensure DataLoader workers inherit the seed.
+        os.environ["PYTHONHASHSEED"] = str(seed)
+
     # Run training
     results = train(cfg)
     
