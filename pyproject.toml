@@ -11,3 +11,10 @@ requires-python = ">=3.10"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["astroml*"]
+
+[tool.pytest.ini_options]
+# Custom markers used by the CI matrix (#186).
+markers = [
+    "gpu: requires a CUDA-capable runner; auto-skipped on CPU-only environments",
+    "e2e: end-to-end pipeline test (#193)",
+]
