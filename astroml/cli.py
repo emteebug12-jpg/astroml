@@ -9,6 +9,16 @@ from .ingestion.service import IngestionService
 from .ingestion.state import StateStore
 
 
+from __future__ import annotations
+
+import argparse
+import json
+from typing import Optional
+
+from .ingestion.service import IngestionService
+from .ingestion.state import StateStore
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="astroml", description="AstroML utilities CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -28,6 +38,29 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--print-db",
         action="store_true",
         help="Print effective database configuration",
+    )
+
+    args = parser.parse_args(argv)
+
+    preprocess = sub.add_parser(
+        "preprocess-backfill",
+        help="Preprocess large ledger backfill datasets using Polars",
+    )
+    preprocess.add_argument(
+        "--input",
+        required=True,
+        help="Input file or directory (csv, parquet, ndjson/jsonl).",
+    )
+    preprocess.add_argument(
+        "--output",
+        required=True,
+        help="Output Parquet path.",
+    )
+    preprocess.add_argument(
+        "--input-format",
+        choices=["parquet", "csv", "ndjson", "jsonl"],
+        default=None,
+        help="Optional explicit input format.",
     )
 
     args = parser.parse_args(argv)
@@ -82,6 +115,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         else:
             config.print_help()
             return 1
+
+    parser.print_help()
+    return 1
+    if args.command == "preprocess-backfill":
+        from .preprocessing.ledger_backfill import preprocess_to_parquet
+
+        output_path = preprocess_to_parquet(
+            input_path=args.input,
+            output_path=args.output,
+            input_format=args.input_format,
+        )
+        print(json.dumps({"output": str(output_path)}, indent=2))
+        return 0
 
     parser.print_help()
     return 1

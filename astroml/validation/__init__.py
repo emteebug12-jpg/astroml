@@ -3,6 +3,7 @@
 Expose data integrity and leakage detection utilities here.
 """
 # Import validation modules for hash-based deduplication and integrity
+from . import data_quality
 from . import dedupe
 from . import hashing
 from . import integrity
@@ -15,6 +16,7 @@ try:
     __all__ = [
         "leakage",
         "calibration",
+        "data_quality",
         "dedupe",
         "hashing",
         "validator",
@@ -22,6 +24,7 @@ try:
     ]
 except ImportError:
     __all__ = [
+        "data_quality",
         "dedupe",
         "hashing",
         "validator",

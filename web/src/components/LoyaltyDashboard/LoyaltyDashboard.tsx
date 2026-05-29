@@ -8,6 +8,8 @@ import { TierBenefitsCard } from './TierBenefitsCard'
 import { PointsRedemptionPanel } from './PointsRedemptionPanel'
 import { TierComparisonChart } from './TierComparisonChart'
 import { ReferralInviteSection } from './ReferralInviteSection'
+import { RealTimeTransactionsChart } from './RealTimeTransactionsChart'
+import { FraudDetectionPanel } from './FraudDetectionPanel'
 
 export function LoyaltyDashboard() {
   const { data: summary, isLoading: loadingSummary } = useLoyaltySummary()
@@ -20,9 +22,6 @@ export function LoyaltyDashboard() {
 
   const prevTierId = useRef<string | null>(null)
   useEffect(() => {
-    if (summary?.currentTier?.id && prevTierId.current && prevTierId.current !== summary.currentTier.id) {
-      // Tier upgrade handled inside TierProgress via prop change; this is just to keep prev value
-    }
     if (summary?.currentTier?.id) {
       prevTierId.current = summary.currentTier.id
     }
@@ -58,6 +57,14 @@ export function LoyaltyDashboard() {
 
       <section>
         <TierComparisonChart />
+      </section>
+
+      <section>
+        <RealTimeTransactionsChart />
+      </section>
+
+      <section>
+        <FraudDetectionPanel />
       </section>
 
       <section>
