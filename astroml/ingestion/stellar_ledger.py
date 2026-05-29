@@ -132,7 +132,11 @@ async def main():
     
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
+    # Issue #195 — central logging config (level + text/json format)
+    # via ASTROML_LOG_LEVEL / ASTROML_LOG_FORMAT env vars.
+    from astroml.utils.logging import configure_logging
+
+    configure_logging()
     
     async with StellarLedgerDownloader() as downloader:
         try:
