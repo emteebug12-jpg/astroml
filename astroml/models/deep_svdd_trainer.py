@@ -282,11 +282,35 @@ class DeepSVDDTrainer:
                 checkpoint_path="best_deep_svdd.pth",
             )
     
-    def load_checkpoint(self, checkpoint_path: str):
-        """Load model from checkpoint."""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+    def load_checkpoint(self, checkpoint_path: str) -> bool:
+        """Load model from checkpoint.
         
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        Returns:
+            True if checkpoint was loaded successfully, False otherwise.
+        
+        Raises:
+            FileNotFoundError: If checkpoint file does not exist
+            ValueError: If checkpoint is corrupted or missing required keys
+            RuntimeError: If state dict does not match model architecture
+        """
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=True)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
+        except Exception as e:
+            raise ValueError(f"Failed to load checkpoint: {e}")
+        
+        # Validate required keys
+        required_keys = ['model_state_dict', 'center']
+        for key in required_keys:
+            if key not in checkpoint:
+                raise ValueError(f"Checkpoint missing required key: {key}")
+        
+        try:
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+        except Exception as e:
+            raise RuntimeError(f"State dict does not match model architecture: {e}")
+        
         self.model.center = checkpoint['center']
         
         if checkpoint.get('scaler') is not None:
@@ -294,6 +318,8 @@ class DeepSVDDTrainer:
         
         if checkpoint.get('training_history') is not None:
             self.training_history = checkpoint['training_history']
+        
+        return True
     
     def evaluate(
         self,
