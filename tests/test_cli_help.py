@@ -1,7 +1,7 @@
 """Tests for the top-level CLI help text and global flag wiring.
 
-Regression coverage for #180 — the top-level help must surface examples,
-the `--config` and `--env` flags, and the documented environment
+Regression coverage for #150 and #180 — the top-level help must surface
+examples, the `--config` and `--env` flags, and the documented environment
 variables, so new contributors can discover them from `--help` alone.
 """
 from __future__ import annotations
@@ -89,3 +89,28 @@ def test_config_flag_passes_path_to_loader(monkeypatch: pytest.MonkeyPatch) -> N
         with redirect_stdout(io.StringIO()):
             cli.main(["--config", str(custom), "config", "--print-db"])
     load_mock.assert_called_once_with(custom)
+
+
+def test_help_lists_all_subcommands() -> None:
+    """--help output must mention every top-level subcommand (#150)."""
+    output = _capture_help()
+    for subcommand in ("ingest", "config", "quickstart", "preprocess-backfill"):
+        assert subcommand in output, f"subcommand {subcommand!r} missing from --help"
+
+
+def test_help_mentions_readme_usage_link() -> None:
+    """--help epilog must include a link to the README usage section (#150)."""
+    output = _capture_help()
+    assert "README" in output or "github.com" in output, (
+        "--help should reference the README or project URL for further guidance"
+    )
+
+
+def test_quickstart_subcommand_help_mentions_key_flags() -> None:
+    """quickstart --help must document --num-ledgers, --epochs, and --seed (#150)."""
+    buf = io.StringIO()
+    with redirect_stdout(buf), pytest.raises(SystemExit):
+        cli.main(["quickstart", "--help"])
+    output = buf.getvalue()
+    for flag in ("--num-ledgers", "--epochs", "--seed"):
+        assert flag in output, f"quickstart --help missing flag {flag!r}"
