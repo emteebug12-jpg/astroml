@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Generator, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Generator, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 import bisect
+
+
+# Issue #199 — default chunk size for the streaming graph builder. SQLAlchemy
+# fetches rows from the DB in batches of this many; the iterator yields each
+# edge individually so callers never see a fully-materialised window list.
+DEFAULT_STREAM_CHUNK_SIZE = 5_000
 
 
 @dataclass(frozen=True)
@@ -114,6 +120,111 @@ def _parse_window_size(window: str) -> timedelta:
     if unit == "s":
         return timedelta(seconds=value)
     raise ValueError(f"Unknown window unit '{unit}'. Use 'd', 'h', or 's'.")
+
+
+@dataclass(frozen=True)
+class SnapshotMeta:
+    """Window metadata without the edge payload — issue #199.
+
+    Yielded alongside a fresh edge iterator by
+    :func:`iter_db_snapshot_edges` so callers can decide how (or whether)
+    to buffer the edges, instead of being forced to hold a fully-built
+    ``List[Edge]`` in RAM.
+    """
+
+    index: int
+    start: datetime
+    end: datetime
+
+
+def iter_db_snapshot_edges(
+    window: str = "7d",
+    t0: Optional[datetime] = None,
+    t_now: Optional[datetime] = None,
+    step: Optional[str] = None,
+    session=None,
+    chunk_size: int = DEFAULT_STREAM_CHUNK_SIZE,
+) -> Generator[Tuple["SnapshotMeta", Iterator["Edge"]], None, None]:
+    """Streaming variant of :func:`iter_db_snapshots` — issue #199.
+
+    Each yielded ``(meta, edges)`` pair gives the window bounds plus a
+    fresh generator that pulls rows from the database in chunks of
+    ``chunk_size`` via SQLAlchemy's ``yield_per`` and converts each row
+    into an :class:`Edge` lazily. Peak memory per window is bounded by
+    ``chunk_size`` (default 5 000 edges ≈ a few MB) regardless of how
+    many edges the window actually contains.
+
+    The edge iterator MUST be drained or discarded before advancing to
+    the next ``(meta, edges)`` pair — the underlying SQLAlchemy result
+    will be reused. The function does not yield a ``nodes`` set; build
+    it incrementally if you need one.
+
+    Use this in place of :func:`iter_db_snapshots` whenever a window may
+    plausibly contain enough edges to risk OOM on the training machine.
+    """
+    from astroml.db.schema import NormalizedTransaction
+    from sqlalchemy import func as sqlfunc, select
+
+    if session is None:
+        from astroml.db.session import get_session
+        session = get_session()
+
+    win_delta = _parse_window_size(window)
+    step_delta = _parse_window_size(step) if step else win_delta
+
+    if t_now is None:
+        t_now = datetime.now(timezone.utc)
+
+    if t0 is None:
+        result = session.execute(
+            select(sqlfunc.min(NormalizedTransaction.timestamp))
+        ).scalar()
+        if result is None:
+            return  # empty DB
+        t0 = result if result.tzinfo else result.replace(tzinfo=timezone.utc)
+
+    if t_now.tzinfo is None:
+        t_now = t_now.replace(tzinfo=timezone.utc)
+    if t0.tzinfo is None:
+        t0 = t0.replace(tzinfo=timezone.utc)
+
+    window_start = t0
+    index = 0
+
+    while window_start < t_now:
+        window_end = min(window_start + win_delta, t_now)
+
+        result = session.execute(
+            select(
+                NormalizedTransaction.sender,
+                NormalizedTransaction.receiver,
+                NormalizedTransaction.timestamp,
+            )
+            .where(
+                NormalizedTransaction.timestamp >= window_start,
+                NormalizedTransaction.timestamp <= window_end,
+                NormalizedTransaction.receiver.isnot(None),
+                NormalizedTransaction.sender != NormalizedTransaction.receiver,
+            )
+            .order_by(NormalizedTransaction.timestamp)
+            .execution_options(yield_per=chunk_size, stream_results=True)
+        )
+
+        def _edges_iter(_result=result) -> Iterator[Edge]:
+            for row in _result:
+                yield Edge(
+                    src=row.sender,
+                    dst=row.receiver,
+                    timestamp=int(row.timestamp.timestamp()),
+                )
+
+        yield (
+            SnapshotMeta(index=index, start=window_start, end=window_end),
+            _edges_iter(),
+        )
+
+        window_start += step_delta
+        index += 1
 
 
 def iter_db_snapshots(
