@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 import yaml
 
+from astroml.storage import ArtifactStorageConfig
+
 
 class EarlyStoppingConfig(BaseModel):
     patience: int = Field(default=50, description="Number of epochs with no improvement after which training will stop.")
@@ -44,6 +46,10 @@ class TrainingConfig(BaseModel):
     save_best_only: bool = Field(default=True, description="Whether to save only the best model.")
     save_last: bool = Field(default=True, description="Whether to save the last model.")
     optimizer_configs: OptimizerConfig = Field(default_factory=OptimizerConfig)
+    artifact_storage: ArtifactStorageConfig = Field(
+        default_factory=ArtifactStorageConfig,
+        description="Configuration for artifact storage (local, S3, or GCS)"
+    )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "TrainingConfig":

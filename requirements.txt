@@ -34,6 +34,11 @@ aiohttp-sse-client>=0.2.1
 stellar-sdk>=9.0.0
 tenacity>=8.4.0
 
+# ── Cloud storage / artifact management ────────────────────────────────────
+fsspec>=2024.2.0
+s3fs>=2024.2.0
+gcsfs>=2024.2.0
+
 # ── Observability ──────────────────────────────────────────────────────────
 prometheus-client>=0.19.0
 
