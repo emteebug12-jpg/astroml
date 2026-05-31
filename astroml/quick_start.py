@@ -312,10 +312,9 @@ def run_quickstart() -> int:
     Returns:
         Exit code (0 for success, 1 for failure)
     """
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    from astroml.utils.logging import configure_logging
+
+    configure_logging()
     
     logger.info("=" * 80)
     logger.info("AstroML Quick Start: Ingestion → Graph → Train Pipeline")
