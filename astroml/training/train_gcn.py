@@ -13,9 +13,13 @@ from astroml.training.metrics import (
     MODEL_PARAMETERS,
     LEARNING_RATE,
 )
+from astroml.training.metrics_server import start_metrics_server
 
 
 def train():
+    # Start Prometheus metrics server
+    start_metrics_server()
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dataset = Planetoid(root="data", name="Cora", transform=NormalizeFeatures())
