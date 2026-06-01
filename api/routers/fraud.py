@@ -4,6 +4,13 @@ Endpoints:
   POST /api/v1/fraud/score   — real-time anomaly scoring
   GET  /api/v1/fraud/alerts  — paginated fraud alerts
   GET  /api/v1/fraud/stats   — aggregated fraud statistics
+"""Fraud Detection API (issue #249).
+
+Model loading
+-------------
+Models are loaded lazily on first request and cached in module-level state.
+If checkpoints are absent the /score endpoint returns 503 with a clear message
+rather than crashing the server.
 """
 from __future__ import annotations
 

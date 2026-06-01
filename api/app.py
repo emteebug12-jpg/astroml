@@ -7,6 +7,15 @@ Wires together all routers:
   - /api/v1/loyalty/*     (Issue #255)
 
 Usage:
+"""AstroML REST API application.
+
+Mounts all routers:
+  - /api/v1/transactions  (issue #253)
+  - /api/v1/fraud         (issue #249)
+  - /api/v1/models        (issue #257)
+
+Usage
+-----
     uvicorn api.app:app --host 0.0.0.0 --port 8000
 """
 from __future__ import annotations
