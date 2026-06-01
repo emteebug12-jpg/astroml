@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Generator, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 import bisect
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 
 # Issue #199 — default chunk size for the streaming graph builder. SQLAlchemy
@@ -227,6 +228,58 @@ def iter_db_snapshot_edges(
         index += 1
 
 
+def _build_snapshot_window(
+    index: int,
+    window_start: datetime,
+    window_end: datetime,
+    chunk_size: int,
+) -> SnapshotWindow:
+    """Build a single snapshot window from the database."""
+    from astroml.db.schema import NormalizedTransaction
+    from astroml.db.session import get_session
+    from sqlalchemy import select
+
+    session = get_session()
+    try:
+        result = session.execute(
+            select(
+                NormalizedTransaction.sender,
+                NormalizedTransaction.receiver,
+                NormalizedTransaction.timestamp,
+            )
+            .where(
+                NormalizedTransaction.timestamp >= window_start,
+                NormalizedTransaction.timestamp <= window_end,
+                NormalizedTransaction.receiver.isnot(None),
+                NormalizedTransaction.sender != NormalizedTransaction.receiver,
+            )
+            .order_by(NormalizedTransaction.timestamp)
+        )
+
+        edges: List[Edge] = []
+        nodes: Set[str] = set()
+
+        for row in result.yield_per(chunk_size):
+            edge = Edge(
+                src=row.sender,
+                dst=row.receiver,
+                timestamp=int(row.timestamp.timestamp()),
+            )
+            edges.append(edge)
+            nodes.add(edge.src)
+            nodes.add(edge.dst)
+
+        return SnapshotWindow(
+            index=index,
+            start=window_start,
+            end=window_end,
+            edges=edges,
+            nodes=nodes,
+        )
+    finally:
+        session.close()
+
+
 def iter_db_snapshots(
     window: str = "7d",
     t0: Optional[datetime] = None,
@@ -234,6 +287,7 @@ def iter_db_snapshots(
     step: Optional[str] = None,
     session=None,
     chunk_size: int = 100_000,
+    workers: int = 1,
 ) -> Generator[SnapshotWindow, None, None]:
     """Yield discrete time-windowed graph snapshots from the database.
 
@@ -250,6 +304,8 @@ def iter_db_snapshots(
         chunk_size: Number of rows to stream per fetch from the DB. Larger values
             reduce round-trips but increase peak memory; smaller values keep the
             working set bounded for long-window snapshots.
+        workers: Number of concurrent window fetch workers. Set to >1 to prefetch
+            windows in parallel when using the default session factory.
 
     Yields:
         :class:`SnapshotWindow` instances in chronological order.
@@ -257,6 +313,7 @@ def iter_db_snapshots(
     from astroml.db.schema import NormalizedTransaction
     from sqlalchemy import select, func as sqlfunc
 
+    session_provided = session is not None
     if session is None:
         from astroml.db.session import get_session
         session = get_session()
@@ -275,6 +332,7 @@ def iter_db_snapshots(
             select(sqlfunc.min(NormalizedTransaction.timestamp))
         ).scalar()
         if result is None:
+            session.close()
             return  # empty DB
         t0 = result if result.tzinfo else result.replace(tzinfo=timezone.utc)
 
@@ -285,6 +343,46 @@ def iter_db_snapshots(
 
     window_start = t0
     index = 0
+
+    if workers > 1 and not session_provided:
+        session.close()
+
+        pending_windows: Dict[int, SnapshotWindow] = {}
+        futures: Dict[int, "concurrent.futures.Future[SnapshotWindow]"] = {}
+        next_index_to_yield = 0
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            while window_start < t_now or futures:
+                while window_start < t_now and len(futures) < workers:
+                    window_end = min(window_start + win_delta, t_now)
+                    future = executor.submit(
+                        _build_snapshot_window,
+                        index,
+                        window_start,
+                        window_end,
+                        chunk_size,
+                    )
+                    futures[index] = future
+                    window_start += step_delta
+                    index += 1
+
+                if not futures:
+                    break
+
+                done, _ = wait(set(futures.values()), return_when=FIRST_COMPLETED)
+                for future in done:
+                    result_window = future.result()
+                    pending_windows[result_window.index] = result_window
+                    future_index = next(
+                        idx for idx, fut in futures.items() if fut is future
+                    )
+                    del futures[future_index]
+
+                while next_index_to_yield in pending_windows:
+                    yield pending_windows.pop(next_index_to_yield)
+                    next_index_to_yield += 1
+
+        return
 
     while window_start < t_now:
         window_end = min(window_start + win_delta, t_now)
