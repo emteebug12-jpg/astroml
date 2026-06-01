@@ -193,7 +193,6 @@ class TestInsecureDeserialization:
 
         class _Exploit:
             def __reduce__(self):
-                import os  # noqa: PLC0415
                 return (os.system, ("echo PICKLE_RCE_EXECUTED",))
 
         payload = pickle.dumps(_Exploit())

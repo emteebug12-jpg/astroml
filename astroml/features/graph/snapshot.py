@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Generator, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Generator, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 import bisect
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 
 
 # Issue #199 — default chunk size for the streaming graph builder. SQLAlchemy
@@ -348,7 +348,7 @@ def iter_db_snapshots(
         session.close()
 
         pending_windows: Dict[int, SnapshotWindow] = {}
-        futures: Dict[int, "concurrent.futures.Future[SnapshotWindow]"] = {}
+        futures: Dict[int, "Future[SnapshotWindow]"] = {}
         next_index_to_yield = 0
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
