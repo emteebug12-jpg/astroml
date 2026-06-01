@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from ..models import GCN, LinkPredictor, InductiveSAGEEncoder, DeepSVDD
 from ..ingestion.service import IngestionService
+from ..artifacts import get_artifact_store
 
 
 @dataclass
@@ -454,9 +455,30 @@ class ModelBenchmark:
         print(f"Configuration saved to {config_path}")
     
     def _save_model(self):
-        """Save trained model."""
+        """Save trained model to artifact store."""
         if self.model is not None:
-            model_path = Path(self.config.output_dir) / f"{self.config.model.name}_model.pt"
-            model_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(self.model.state_dict(), model_path)
-            print(f"Model saved to {model_path}")
+            # Initialize artifact store with configured URI
+            store = get_artifact_store(self.config.artifact_uri)
+            
+            # Create model filename
+            model_filename = f"{self.config.model.name}_model.pt"
+            
+            # Save model to artifact store
+            try:
+                artifact_uri = store.save_model(
+                    self.model,
+                    model_filename,
+                    metadata={
+                        'model_name': self.config.model.name,
+                        'model_params': self.config.model.params,
+                        'timestamp': time.time(),
+                    }
+                )
+                print(f"Model saved to artifact store: {artifact_uri}")
+            except Exception as e:
+                print(f"Warning: Failed to save model to artifact store: {e}")
+                # Fallback to local save
+                model_path = Path(self.config.output_dir) / model_filename
+                model_path.parent.mkdir(parents=True, exist_ok=True)
+                torch.save(self.model.state_dict(), model_path)
+                print(f"Model saved locally to {model_path}")
