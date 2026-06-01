@@ -318,6 +318,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+> **Note:** Three requirements files are available. See [REQUIREMENTS.md](REQUIREMENTS.md) for guidance on which to use based on your environment (GPU training, CPU-only, or minimal config-only).
+
 ### 3. Configure database
 
 A lightweight Docker Compose setup is provided to spin up PostgreSQL and Redis with persistent volumes. Simply run:
