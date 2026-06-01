@@ -8,10 +8,23 @@ on:
 
 jobs:
   test:
+    # #186 — CI matrix: CPU is mandatory; the optional GPU job runs only
+    # when a CUDA-capable runner is present (the CUDA-availability check
+    # below short-circuits otherwise so the matrix completes cleanly on
+    # standard GitHub-hosted runners). `requirements-cpu.txt` is used when
+    # present so CPU CI doesn't pull heavy CUDA-bound wheels.
+    name: pytest (${{ matrix.flavor }}, py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.10", "3.11"]
+        flavor: ["cpu"]
+        include:
+          - python-version: "3.11"
+            flavor: "gpu"
+
+    continue-on-error: ${{ matrix.flavor == 'gpu' }}
 
     steps:
     - uses: actions/checkout@v4
@@ -20,13 +33,40 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
 
-    - name: Install dependencies
+    - name: Install dependencies (${{ matrix.flavor }})
       run: |
         python -m pip install --upgrade pip
         pip install pytest pytest-asyncio
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ "${{ matrix.flavor }}" = "cpu" ] && [ -f requirements-cpu.txt ]; then
+          pip install -r requirements-cpu.txt
+        elif [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        # Install the package itself so `import astroml` resolves in tests.
+        pip install -e . --no-deps
 
-    - name: Run pytest
+    - name: Run pytest (CPU)
+      if: matrix.flavor == 'cpu'
+      run: pytest -v -m "not gpu"
+
+    - name: Run pytest (GPU)
+      if: matrix.flavor == 'gpu'
       run: |
-        pytest -v
+        # The GPU subset is gated by pytest's `gpu` marker. We additionally
+        # short-circuit when CUDA isn't reachable so the job stays green on
+        # CPU-only runners until self-hosted GPU runners come online.
+        python - <<'PY'
+        import sys
+        try:
+            import torch
+        except ImportError:
+            print("torch not installed; skipping GPU pytest")
+            sys.exit(0)
+        if not torch.cuda.is_available():
+            print("CUDA not available on this runner; GPU job no-op")
+            sys.exit(0)
+        import subprocess
+        subprocess.check_call(["pytest", "-v", "-m", "gpu"])
+        PY
