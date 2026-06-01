@@ -9,8 +9,10 @@ Usage:
     python train.py --multirun model.lr=0.001,0.01,0.1  # Hyperparameter sweep
 """
 
+import argparse
 import os
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, Any
 
@@ -35,9 +37,25 @@ def set_device(device_config: str) -> torch.device:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device(device_config)
-    
+
     logger.info(f"Using device: {device}")
     return device
+
+
+def set_random_seed(seed: int) -> None:
+    """Set deterministic random seeds for Python, NumPy, and PyTorch."""
+    import random as _random
+    import numpy as _np
+
+    _random.seed(seed)
+    _np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    os.environ["PYTHONHASHSEED"] = str(seed)
 
 
 def apply_temporal_masks(data: Any, cfg: DictConfig) -> Any:
@@ -310,23 +328,34 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     }
 
 
+def _parse_command_line_seed() -> None:
+    """Parse an optional top-level --seed flag and set ASTROML_SEED."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="Deterministic seed for Python, NumPy, and PyTorch",
+    )
+
+    args, remaining = parser.parse_known_args()
+    if args.seed is not None:
+        os.environ["ASTROML_SEED"] = str(args.seed)
+
+    # Preserve all other arguments for Hydra
+    sys.argv = [sys.argv[0]] + remaining
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
-def main(cfg: DictConfig) -> None:
-    """Main entry point."""
+def _hydra_main(cfg: DictConfig) -> None:
+    """Hydra entry point after CLI preprocessing."""
     # Create save directory
     save_dir = Path(cfg.experiment.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Log configuration
     logger.info("Configuration:")
     logger.info(OmegaConf.to_yaml(cfg))
-    
-    # Set random seeds for reproducibility (#189). Hydra's `cfg.experiment.seed`
-    # remains the canonical source; a top-level `seed=` override on the CLI
-    # (e.g. `python train.py seed=42`) is automatically merged into the
-    # experiment group, so no explicit `--seed` flag is needed beyond Hydra's
-    # standard overrides. We additionally honour `ASTROML_SEED` as an env
-    # fallback for non-Hydra entrypoints.
+
     env_seed = os.environ.get("ASTROML_SEED")
     seed = cfg.experiment.seed
     if seed is None and env_seed is not None:
@@ -341,35 +370,21 @@ def main(cfg: DictConfig) -> None:
     if seed is not None:
         seed = int(seed)
         logger.info("Setting deterministic seeds: %d", seed)
-        import random as _random
-
-        import numpy as _np
-
-        _random.seed(seed)
-        _np.random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
-            # Trade some throughput for reproducibility on GPU runs.
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-        # Ensure DataLoader workers inherit the seed.
-        os.environ["PYTHONHASHSEED"] = str(seed)
+        set_random_seed(seed)
 
     # Run training
     results = train(cfg)
-    
-    # Log results
+
     logger.info("Training completed!")
     logger.info(f"Results: {results}")
-    
+
     # Save results
     results_path = save_dir / "results.yaml"
     OmegaConf.save(OmegaConf.create(results), results_path)
-    
+
     logger.info(f"Results saved to {results_path}")
 
 
 if __name__ == "__main__":
-    main()
+    _parse_command_line_seed()
+    _hydra_main()
