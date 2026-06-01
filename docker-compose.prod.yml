@@ -1,22 +1,24 @@
-# AstroML Production Docker Compose
-# Optimized for production deployment with health checks, resource limits, and logging
-
 version: '3.8'
+
+# Production Docker Compose Override File
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
 
 services:
   # PostgreSQL Database - Production
   postgres:
     image: postgres:15-alpine
     container_name: astroml-postgres-prod
+    restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-astroml}
       POSTGRES_USER: ${POSTGRES_USER:-astroml}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C --shared-buffers=256MB --max-connections=200"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./monitoring/postgres/backup:/backup
       - ./migrations:/docker-entrypoint-initdb.d
     networks:
       - astroml-network
@@ -26,7 +28,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -45,9 +46,38 @@ services:
   redis:
     image: redis:7-alpine
     container_name: astroml-redis-prod
+    restart: always
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     ports:
       - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - astroml-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  astroml-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
     volumes:
       - redis_data:/data
     networks:
@@ -57,21 +87,40 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
-    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     deploy:
       resources:
         limits:
           cpus: '1.0'
           memory: 1G
         reservations:
-          cpus: '0.25'
-          memory: 256M
+          cpus: '0.5'
+          memory: 512M
+    start_period: 10s
+    restart: unless-stopped
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Production application service
+  production:
+    environment:
+      - LOG_LEVEL=WARNING
+      - DEBUG=False
+      - APP_ENV=production
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
 
   # AstroML Ingestion Service
   ingestion:
@@ -101,7 +150,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+  ingestion:
+    # Production ingestion service
     restart: unless-stopped
+    environment:
+      - LOG_LEVEL=INFO
+      - APP_ENV=production
     deploy:
       resources:
         limits:
@@ -115,6 +169,21 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+
+  streaming:
+    # Production streaming service
+    restart: always
+    environment:
+      - LOG_LEVEL=INFO
+      - APP_ENV=production
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
 
   # AstroML Training Service
   training:
@@ -205,10 +274,72 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  prometheus:
+    # Production Prometheus with persistent storage
+    image: prom/prometheus:latest
+    restart: always
+    environment:
+      - PROMETHEUS_ARGS=--storage.tsdb.retention.time=30d --storage.tsdb.retention.size=50GB
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - astroml-network
+    profiles:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  grafana:
+    # Production Grafana with persistent storage
+    image: grafana/grafana:latest
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_LOG_LEVEL=warn
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - astroml-network
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  astroml-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
 volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
   feature_store:
     driver: local

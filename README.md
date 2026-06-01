@@ -303,6 +303,32 @@ Results saved to: benchmark_results/quickstart
 
 ## 🔄 Full Setup
 
+### Using Docker (Recommended)
+
+For the quickest setup with all dependencies, use Docker:
+
+```bash
+# Clone and navigate to repository
+git clone https://github.com/Traqora/astroml.git
+cd astroml
+
+# Start with Docker
+cp .env.example .env
+./scripts/docker-start.sh core
+
+# Access services
+curl http://localhost:8000            # API
+open http://localhost:3000            # Grafana
+```
+
+📚 **Full Docker Setup**: See [DOCKER.md](./DOCKER.md) for comprehensive documentation including:
+- [Docker Quick Reference](./DOCKER_QUICK_REFERENCE.md) - Quick commands and common tasks
+- [Environment Configuration](./docker-env-guide.md) - Configuration guide
+- [Production Deployment](./DOCKER_PRODUCTION_DEPLOYMENT.md) - Production setup
+- [Troubleshooting](./DOCKER_TROUBLESHOOTING.md) - Common issues and solutions
+
+### Local Development Setup
+
 ### 1. Clone the repository
 
 ```bash
