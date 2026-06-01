@@ -1,7 +1,19 @@
-"""Unit tests for deduplication utilities."""
-import pytest
+"""Unit tests for deduplication utilities.
+
+These tests intentionally import the dedupe submodule through the validation
+package surface. The validation package must therefore avoid eager imports of
+unrelated modules so this file remains stable under parallel collection.
+"""
 
 from astroml.validation import dedupe
+
+
+def _tx(
+    tx_id: str,
+    payload: str = "test",
+    timestamp: str = "2024-01-01",
+):
+    return {"id": tx_id, "payload": payload, "timestamp": timestamp}
 
 
 class TestDeduplicator:
@@ -10,7 +22,7 @@ class TestDeduplicator:
     def test_add_unique_transaction(self):
         """Should add unique transaction."""
         dedup = dedupe.Deduplicator()
-        tx = {"id": "1", "payload": "test", "timestamp": "2024-01-01"}
+        tx = _tx("1")
         result = dedup.add(tx)
         assert result is True
         # the exact hash string is based on sorting keys so we just check it was added
@@ -19,7 +31,7 @@ class TestDeduplicator:
     def test_add_duplicate_transaction(self):
         """Should reject duplicate transaction."""
         dedup = dedupe.Deduplicator()
-        tx = {"id": "1", "payload": "test", "timestamp": "2024-01-01"}
+        tx = _tx("1")
         dedup.add(tx)
         result = dedup.add(tx)
         assert result is False
@@ -27,7 +39,7 @@ class TestDeduplicator:
     def test_check_duplicate(self):
         """Should check for duplicates without adding."""
         dedup = dedupe.Deduplicator()
-        tx = {"id": "1", "payload": "test", "timestamp": "2024-01-01"}
+        tx = _tx("1")
         assert dedup.check(tx) is False
         dedup.add(tx)
         assert dedup.check(tx) is True
@@ -36,9 +48,9 @@ class TestDeduplicator:
         """Should process batch and separate duplicates."""
         dedup = dedupe.Deduplicator()
         txs = [
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},
-            {"id": "2", "payload": "test2", "timestamp": "2024-01-02"},
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},  # duplicate
+            _tx("1", payload="test1"),
+            _tx("2", payload="test2", timestamp="2024-01-02"),
+            _tx("1", payload="test1"),  # duplicate
         ]
         result = dedup.process(txs)
         assert len(result.unique) == 2
@@ -48,9 +60,9 @@ class TestDeduplicator:
         """Should filter and return unique transactions."""
         dedup = dedupe.Deduplicator()
         txs = [
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},
-            {"id": "2", "payload": "test2", "timestamp": "2024-01-02"},
+            _tx("1", payload="test1"),
+            _tx("1", payload="test1"),
+            _tx("2", payload="test2", timestamp="2024-01-02"),
         ]
         unique = dedup.filter_duplicates(txs, return_unique=True)
         assert len(unique) == 2
@@ -59,9 +71,9 @@ class TestDeduplicator:
         """Should filter and return only duplicates."""
         dedup = dedupe.Deduplicator()
         txs = [
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},
-            {"id": "2", "payload": "test2", "timestamp": "2024-01-02"},
+            _tx("1", payload="test1"),
+            _tx("1", payload="test1"),
+            _tx("2", payload="test2", timestamp="2024-01-02"),
         ]
         duplicates = dedup.filter_duplicates(txs, return_unique=False)
         assert len(duplicates) == 1
@@ -69,7 +81,7 @@ class TestDeduplicator:
     def test_reset(self):
         """Should clear all state."""
         dedup = dedupe.Deduplicator()
-        tx = {"id": "1", "payload": "test", "timestamp": "2024-01-01"}
+        tx = _tx("1")
         dedup.add(tx)
         dedup.reset()
         assert len(dedup.seen_hashes) == 0
@@ -77,11 +89,21 @@ class TestDeduplicator:
     def test_conflict_tracking(self):
         """Should track conflict records."""
         dedup = dedupe.Deduplicator(track_conflicts=True)
-        tx = {"id": "1", "payload": "test", "timestamp": "2024-01-01"}
+        tx = _tx("1")
         dedup.add(tx)
         dedup.add(tx)  # duplicate
         assert len(dedup.conflicts) == 1
         assert dedup.conflicts[0].conflict_type == dedupe.ConflictType.DUPLICATE
+
+    def test_fresh_instances_do_not_share_state(self):
+        """A new Deduplicator instance must start with an empty seen set."""
+        first = dedupe.Deduplicator()
+        second = dedupe.Deduplicator()
+        tx = _tx("shared")
+
+        assert first.add(tx) is True
+        assert second.check(tx) is False
+        assert second.add(tx) is True
 
 
 class TestDeduplicate:
@@ -90,9 +112,9 @@ class TestDeduplicate:
     def test_deduplicate_function(self):
         """Should deduplicate transactions."""
         txs = [
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},
-            {"id": "2", "payload": "test2", "timestamp": "2024-01-02"},
-            {"id": "1", "payload": "test1", "timestamp": "2024-01-01"},
+            _tx("1", payload="test1"),
+            _tx("2", payload="test2", timestamp="2024-01-02"),
+            _tx("1", payload="test1"),
         ]
         result = dedupe.deduplicate(txs)
         assert len(result.unique) == 2
