@@ -90,6 +90,11 @@ pub struct FraudRegistry;
 impl FraudRegistry {
     /// Initialize the contract with an admin address
     pub fn initialize(env: Env, admin: Address) {
+        // Prevent re-initialization (SC-1 fix)
+        if env.storage().instance().has(&DATA_KEY) {
+            panic!("Contract already initialized");
+        }
+        
         let data = FraudRegistryData {
             fraud_reports: Map::new(&env),
             validators: Map::new(&env),
@@ -163,6 +168,11 @@ impl FraudRegistry {
         evidence_hash: Option<Bytes>,
     ) -> Result<(), Error> {
         let mut data = Self::get_data(&env);
+        
+        // Validate reason is not empty (SC-3 fix)
+        if reason.is_empty() {
+            return Err(Error::InvalidInput);
+        }
         
         // Check if validator exists and is active
         let validator_info = match data.validators.get(validator.clone()) {
@@ -252,14 +262,20 @@ impl FraudRegistry {
         }
     }
 
-    /// Get all active validators
-    pub fn get_active_validators(env: Env) -> Vec<Validator> {
+    /// Get all active validators (with optional limit to prevent unbounded iteration)
+    pub fn get_active_validators(env: Env, limit: Option<u32>) -> Vec<Validator> {
         let data = Self::get_data(&env);
         let mut active_validators = Vec::new(&env);
+        let max_count = limit.unwrap_or(100); // Default limit of 100 validators
+        let mut count = 0;
         
         for validator in data.validators.values() {
             if validator.is_active {
+                if count >= max_count {
+                    break;
+                }
                 active_validators.push_back(validator);
+                count += 1;
             }
         }
         
