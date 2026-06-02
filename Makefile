@@ -1,4 +1,4 @@
-.PHONY: help quickstart test lint format clean install
+.PHONY: help quickstart test test-api lint format clean install
 
 help:
 	@echo "AstroML Development Commands"
@@ -6,7 +6,8 @@ help:
 	@echo ""
 	@echo "make quickstart          Run quick start: ingestion → graph → train pipeline"
 	@echo "make quickstart-verbose  Run quick start with verbose output"
-	@echo "make test                Run test suite"
+	@echo "make test                Run full test suite"
+	@echo "make test-api            Run API integration tests only"
 	@echo "make lint                Run linters (flake8, mypy)"
 	@echo "make format              Format code (black, isort)"
 	@echo "make install             Install development dependencies"
@@ -21,6 +22,9 @@ quickstart-verbose:
 
 test:
 	pytest tests/ -v
+
+test-api:
+	pytest api/tests/ -v --tb=short
 
 lint:
 	flake8 astroml/ tests/
