@@ -1,6 +1,7 @@
 """API routers package."""
 from api.routers.accounts import router as accounts_router
 from api.routers.auth import router as auth_router
+from api.routers.errors import router as errors_router
 from api.routers.fraud import router as fraud_router
 from api.routers.loyalty import router as loyalty_router
 from api.routers.models import router as models_router
@@ -11,6 +12,7 @@ from api.routers.ws import router as ws_router
 __all__ = [
     "accounts_router",
     "auth_router",
+    "errors_router",
     "fraud_router",
     "loyalty_router",
     "models_router",
