@@ -10,6 +10,7 @@ import { TierComparisonChart } from './TierComparisonChart'
 import { ReferralInviteSection } from './ReferralInviteSection'
 import { RealTimeTransactionsChart } from './RealTimeTransactionsChart'
 import { FraudDetectionPanel } from './FraudDetectionPanel'
+import { SkeletonLoyaltyDashboard } from '../Skeletons'
 
 export function LoyaltyDashboard() {
   const { data: summary, isLoading: loadingSummary } = useLoyaltySummary()
@@ -27,7 +28,7 @@ export function LoyaltyDashboard() {
     }
   }, [summary?.currentTier?.id])
 
-  if (loadingSummary || !summary) return <div>Loading...</div>
+  if (loadingSummary || !summary) return <SkeletonLoyaltyDashboard />
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
