@@ -110,11 +110,13 @@ class FraudAlert(Base):
     risk_level: Mapped[str] = mapped_column(String(16), nullable=False)  # low/medium/high
     description: Mapped[Optional[str]] = mapped_column(Text)
     detected_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     __table_args__ = (
         Index("ix_api_fraud_alerts_account_id", "account_id"),
         Index("ix_api_fraud_alerts_detected_at", "detected_at"),
         Index("ix_api_fraud_alerts_risk_level", "risk_level"),
+        Index("ix_api_fraud_alerts_resolved", "resolved"),
     )
 
     @staticmethod
