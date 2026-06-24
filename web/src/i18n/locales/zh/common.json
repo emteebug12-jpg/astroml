@@ -24,6 +24,20 @@
     "errors": {
       "loading": "加载监控数据出错: {message}",
       "no_data": "没有可用的监控数据"
+    },
+    "export": {
+      "button": "导出CSV"
+    },
+    "model_selector": {
+      "label": "模型"
+    },
+    "comparison": {
+      "active": "比较 {count} 个模型",
+      "no_data": "没有可用的比较数据"
+    },
+    "last_updated": "最后更新",
+    "realtime": {
+      "active": "实时更新已激活"
     }
   },
   "loyalty": {

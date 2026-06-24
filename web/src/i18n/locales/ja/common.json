@@ -24,6 +24,20 @@
     "errors": {
       "loading": "モニタリングデータの読み込みエラー: {message}",
       "no_data": "モニタリングデータがありません"
+    },
+    "export": {
+      "button": "CSVエクスポート"
+    },
+    "model_selector": {
+      "label": "モデル"
+    },
+    "comparison": {
+      "active": "{count} モデルを比較中",
+      "no_data": "比較データがありません"
+    },
+    "last_updated": "最終更新",
+    "realtime": {
+      "active": "ライブアップデート有効"
     }
   },
   "loyalty": {

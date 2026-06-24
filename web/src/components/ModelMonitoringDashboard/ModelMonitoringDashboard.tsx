@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useState, useCallback, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
@@ -18,6 +18,11 @@ import { ApiError } from '../../api/client'
 import { VirtualizedTooltip } from '../charts/VirtualizedTooltip'
 import { createChartConfig, sampleData, CHART_TARGET_POINTS } from '../../lib/chartUtils'
 import { SkeletonModelMonitoring } from '../Skeletons'
+import { useWebSocket } from '../../hooks/useWebSocket'
+import { ModelSelector } from './ModelSelector'
+import { ExportButton } from './ExportButton'
+import { ModelComparisonChart } from './ModelComparisonChart'
+import { LastUpdated } from './LastUpdated'
 
 interface MonitoringMetrics {
   accuracy: number
@@ -35,11 +40,23 @@ interface PerformancePoint {
 interface MonitoringResponse {
   metrics: MonitoringMetrics
   performance: PerformancePoint[]
+  model?: string
+  timestamp?: string
 }
 
-async function getMonitoringData(): Promise<MonitoringResponse> {
+interface ModelRun {
+  id: string
+  name: string
+  color: string
+  data: PerformancePoint[]
+}
+
+async function getMonitoringData(model?: string): Promise<MonitoringResponse> {
   try {
-    const response = await get<any>('/api/v1/monitoring/metrics')
+    const endpoint = model
+      ? `/api/v1/monitoring/metrics?model=${model}`
+      : '/api/v1/monitoring/metrics'
+    const response = await get<any>(endpoint)
 
     return {
       metrics: {
@@ -49,6 +66,8 @@ async function getMonitoringData(): Promise<MonitoringResponse> {
         auc: response.auc || 0,
       },
       performance: response.performance || [],
+      model: response.model || 'default',
+      timestamp: response.timestamp || new Date().toISOString(),
     }
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
@@ -66,11 +85,17 @@ async function getMonitoringData(): Promise<MonitoringResponse> {
           { date: '2026-04-22', accuracy: 0.92, drift: 0.09 },
           { date: '2026-04-29', accuracy: 0.93, drift: 0.07 },
         ],
+        model: 'default',
+        timestamp: new Date().toISOString(),
       }
     }
     throw error
   }
 }
+
+// Available models for comparison
+const AVAILABLE_MODELS = ['Production', 'Candidate v1', 'Candidate v2', 'Baseline']
+const MODEL_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#eab308']
 
 const chartConfig = createChartConfig()
 const accuracyFormatter = (value: number) => `${(value * 100).toFixed(1)}%`
@@ -78,10 +103,60 @@ const driftFormatter = (value: number) => value.toFixed(2)
 
 export const ModelMonitoringDashboard = memo(function ModelMonitoringDashboard() {
   const { t } = useTranslation()
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['monitoring'],
-    queryFn: getMonitoringData,
-    refetchInterval: 30000,
+  const [selectedModel, setSelectedModel] = useState('Production')
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [isRealtime, setIsRealtime] = useState(false)
+  const [comparisonModels, setComparisonModels] = useState<string[]>(['Production', 'Candidate v1'])
+
+  // WebSocket connection for real-time updates
+  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const wsUrl = (import.meta.env.VITE_WS_URL as string | undefined)
+    || `${apiBase.replace(/^http/, 'ws')}/api/v1/ws/metrics`
+
+  const { lastMessage, isConnected } = useWebSocket({
+    url: wsUrl,
+    onMessage: (data) => {
+      if (data.type === 'metrics_update') {
+        // Update the dashboard with new metrics
+        setLastUpdated(new Date())
+        setIsRealtime(true)
+        // Refetch data to get latest metrics
+        refetch()
+      }
+    },
+    onError: (error) => {
+      console.error('WebSocket error:', error)
+    },
+  })
+
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['monitoring', selectedModel],
+    queryFn: () => getMonitoringData(selectedModel),
+    refetchInterval: isConnected ? false : 30000, // Disable polling when WebSocket is connected
+  })
+
+  // Fetch comparison data for multiple models
+  const comparisonData = useQuery({
+    queryKey: ['monitoring-comparison', comparisonModels],
+    queryFn: async () => {
+      const results = await Promise.all(
+        comparisonModels.map((model, index) =>
+          getMonitoringData(model).then((res) => ({
+            id: model,
+            name: model,
+            color: MODEL_COLORS[index % MODEL_COLORS.length],
+            data: res.performance,
+          }))
+        )
+      )
+      return results
+    },
+    enabled: comparisonModels.length > 1,
   })
 
   // Downsample performance series — it may grow large in long-running deployments
@@ -89,6 +164,27 @@ export const ModelMonitoringDashboard = memo(function ModelMonitoringDashboard()
     () => (data ? sampleData(data.performance, CHART_TARGET_POINTS, 'accuracy') : []),
     [data]
   )
+
+  // Handle WebSocket message for real-time updates
+  useEffect(() => {
+    if (lastMessage && lastMessage.type === 'metrics_update') {
+      setLastUpdated(new Date())
+      setIsRealtime(true)
+    }
+  }, [lastMessage])
+
+  const handleModelChange = useCallback((model: string) => {
+    setSelectedModel(model)
+  }, [])
+
+  const handleComparisonToggle = useCallback((model: string) => {
+    setComparisonModels((prev) => {
+      if (prev.includes(model)) {
+        return prev.filter((m) => m !== model)
+      }
+      return [...prev, model]
+    })
+  }, [])
 
   if (isLoading) return <SkeletonModelMonitoring />
   if (error) return <div>{t('monitoring.errors.loading', { message: (error as Error).message })}</div>
@@ -103,6 +199,53 @@ export const ModelMonitoringDashboard = memo(function ModelMonitoringDashboard()
 
   return (
     <section style={{ display: 'grid', gap: 24 }}>
+      {/* Header with controls */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <ModelSelector
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+            models={AVAILABLE_MODELS}
+          />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {AVAILABLE_MODELS.map((model) => (
+              <label
+                key={model}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 13,
+                  color: '#555',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={comparisonModels.includes(model)}
+                  onChange={() => handleComparisonToggle(model)}
+                  disabled={model === selectedModel}
+                />
+                {model}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <LastUpdated timestamp={lastUpdated || new Date()} isRealtime={isRealtime} />
+          <ExportButton data={data} filename={`model-metrics-${selectedModel}`} />
+        </div>
+      </div>
+
+      {/* Metric cards */}
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
         {metrics.map((metric) => (
           <div
@@ -122,7 +265,9 @@ export const ModelMonitoringDashboard = memo(function ModelMonitoringDashboard()
         ))}
       </div>
 
+      {/* Charts grid */}
       <div style={{ display: 'grid', gap: 24, gridTemplateColumns: '1.5fr 1fr' }}>
+        {/* Accuracy trend with comparison */}
         <div
           style={{
             minHeight: 320,
@@ -133,25 +278,37 @@ export const ModelMonitoringDashboard = memo(function ModelMonitoringDashboard()
             border: '1px solid #ececec',
           }}
         >
-          <h2 style={{ marginTop: 0 }}>{t('monitoring.charts.accuracy_trend')}</h2>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={performanceData} {...chartConfig}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-              <YAxis domain={[0.7, 1.0]} tickFormatter={accuracyFormatter} />
-              <Tooltip content={<VirtualizedTooltip formatter={accuracyFormatter} />} />
-              <Line
-                type="monotone"
-                dataKey="accuracy"
-                stroke="#3f8efc"
-                strokeWidth={3}
-                dot={{ r: 4 }}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <h2 style={{ margin: 0 }}>{t('monitoring.charts.accuracy_trend')}</h2>
+            {comparisonModels.length > 1 && (
+              <span style={{ fontSize: 12, color: '#888' }}>
+                {t('monitoring.comparison.active')}: {comparisonModels.length}
+              </span>
+            )}
+          </div>
+          {comparisonModels.length > 1 && comparisonData.data ? (
+            <ModelComparisonChart runs={comparisonData.data} height={240} />
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={performanceData} {...chartConfig}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                <YAxis domain={[0.7, 1.0]} tickFormatter={accuracyFormatter} />
+                <Tooltip content={<VirtualizedTooltip formatter={accuracyFormatter} />} />
+                <Line
+                  type="monotone"
+                  dataKey="accuracy"
+                  stroke="#3f8efc"
+                  strokeWidth={3}
+                  dot={{ r: 4 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
+        {/* Drift detection */}
         <div
           style={{
             minHeight: 320,
@@ -178,6 +335,35 @@ export const ModelMonitoringDashboard = memo(function ModelMonitoringDashboard()
           </p>
         </div>
       </div>
+
+      {/* Real-time status indicator */}
+      {isConnected && (
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 8,
+            background: '#ecfdf5',
+            border: '1px solid #6ee7b7',
+            color: '#065f46',
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span
+            style={{
+              display: 'inline-block',
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: '#22c55e',
+              animation: 'pulse 2s infinite',
+            }}
+          />
+          {t('monitoring.realtime.active')}
+        </div>
+      )}
     </section>
   )
 })

@@ -24,6 +24,20 @@
     "errors": {
       "loading": "Error al cargar datos de monitoreo: {message}",
       "no_data": "No hay datos de monitoreo disponibles"
+    },
+    "export": {
+      "button": "Exportar CSV"
+    },
+    "model_selector": {
+      "label": "Modelo"
+    },
+    "comparison": {
+      "active": "Comparando {count} modelos",
+      "no_data": "No hay datos de comparación disponibles"
+    },
+    "last_updated": "Última actualización",
+    "realtime": {
+      "active": "Actualizaciones en vivo activas"
     }
   },
   "loyalty": {

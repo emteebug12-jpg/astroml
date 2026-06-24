@@ -24,6 +24,20 @@
     "errors": {
       "loading": "Error loading monitoring data: {message}",
       "no_data": "No monitoring data available"
+    },
+    "export": {
+      "button": "Export CSV"
+    },
+    "model_selector": {
+      "label": "Model"
+    },
+    "comparison": {
+      "active": "Comparing {count} models",
+      "no_data": "No comparison data available"
+    },
+    "last_updated": "Last updated",
+    "realtime": {
+      "active": "Live updates active"
     }
   },
   "loyalty": {
