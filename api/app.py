@@ -31,6 +31,7 @@ from api.database import get_async_session_factory
 from api.routers import (
     accounts_router,
     auth_router,
+    errors_router,
     fraud_router,
     loyalty_router,
     mentorship_router,
@@ -122,6 +123,7 @@ async def _latency_middleware(request: Request, call_next):
 
 
 app.include_router(auth_router)
+app.include_router(errors_router)
 app.include_router(transactions_router)
 app.include_router(fraud_router)
 app.include_router(accounts_router)

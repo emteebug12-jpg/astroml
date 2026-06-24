@@ -1,10 +1,14 @@
+import { memo, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  Tooltip,
 } from 'recharts'
 import { getFraudStats } from '../../api/loyalty'
 import type { FraudAlert } from '../../lib/types'
+import { VirtualizedTooltip } from '../charts/VirtualizedTooltip'
+import { createChartConfig, sampleData, CHART_SAMPLE_THRESHOLD, CHART_TARGET_POINTS } from '../../lib/chartUtils'
 
 const PATTERN_LABELS: Record<FraudAlert['pattern'], string> = {
   sybil_cluster: 'Sybil Cluster',
@@ -17,16 +21,34 @@ const RISK_COLOR = (score: number) =>
 
 const PIE_COLORS = ['#e53e3e', '#dd6b20', '#38a169']
 
-export function FraudDetectionPanel() {
+const chartConfig = createChartConfig()
+const riskTooltipFormatter = (value: number) => `${value.toFixed(1)}`
+
+export const FraudDetectionPanel = memo(function FraudDetectionPanel() {
   const { data, isLoading } = useQuery({ queryKey: ['fraudStats'], queryFn: getFraudStats })
 
-  if (isLoading || !data) return <div>Loading fraud data...</div>
+  // Downsample risk-over-time series only when it exceeds the threshold
+  const riskOverTime = useMemo(
+    () =>
+      data
+        ? sampleData(data.riskOverTime, CHART_TARGET_POINTS, 'score')
+        : [],
+    [data]
+  )
 
-  const pieData = [
-    { name: 'High Risk', value: data.highRisk },
-    { name: 'Medium Risk', value: data.mediumRisk },
-    { name: 'Low Risk', value: data.lowRisk },
-  ]
+  const pieData = useMemo(
+    () =>
+      data
+        ? [
+            { name: 'High Risk', value: data.highRisk },
+            { name: 'Medium Risk', value: data.mediumRisk },
+            { name: 'Low Risk', value: data.lowRisk },
+          ]
+        : [],
+    [data]
+  )
+
+  if (isLoading || !data) return <div>Loading fraud data...</div>
 
   return (
     <div>
@@ -53,12 +75,19 @@ export function FraudDetectionPanel() {
         <div style={{ flex: '1 1 320px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Risk Score (14 days)</div>
           <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={data.riskOverTime}>
+            <LineChart data={riskOverTime} {...chartConfig}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" tick={{ fontSize: 10 }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Line type="monotone" dataKey="score" stroke="#e53e3e" dot={false} strokeWidth={2} />
+              <Tooltip content={<VirtualizedTooltip formatter={riskTooltipFormatter} />} />
+              <Line
+                type="monotone"
+                dataKey="score"
+                stroke="#e53e3e"
+                dot={false}
+                strokeWidth={2}
+                isAnimationActive={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -68,13 +97,21 @@ export function FraudDetectionPanel() {
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Risk Distribution</div>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
-              <Pie data={pieData} dataKey="value" cx="50%" cy="50%" outerRadius={70} label={false}>
+              <Pie
+                data={pieData}
+                dataKey="value"
+                cx="50%"
+                cy="50%"
+                outerRadius={70}
+                label={false}
+                isAnimationActive={false}
+              >
                 {pieData.map((_, i) => (
                   <Cell key={i} fill={PIE_COLORS[i]} />
                 ))}
               </Pie>
               <Legend iconSize={10} />
-              <Tooltip />
+              <Tooltip content={<VirtualizedTooltip />} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -110,7 +147,7 @@ export function FraudDetectionPanel() {
       </div>
     </div>
   )
-}
+})
 
 const statCard: React.CSSProperties = {
   border: '1px solid #eee',

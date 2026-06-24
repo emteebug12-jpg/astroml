@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -13,6 +14,8 @@ import {
 } from 'recharts'
 import { get } from '../../api/client'
 import { ApiError } from '../../api/client'
+import { VirtualizedTooltip } from '../charts/VirtualizedTooltip'
+import { createChartConfig, sampleData, CHART_TARGET_POINTS } from '../../lib/chartUtils'
 
 interface MonitoringMetrics {
   accuracy: number
@@ -35,7 +38,7 @@ interface MonitoringResponse {
 async function getMonitoringData(): Promise<MonitoringResponse> {
   try {
     const response = await get<any>('/api/v1/monitoring/metrics')
-    
+
     return {
       metrics: {
         accuracy: response.accuracy || 0,
@@ -47,7 +50,6 @@ async function getMonitoringData(): Promise<MonitoringResponse> {
     }
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
-      // Return mock data if API not available
       return {
         metrics: {
           accuracy: 0.93,
@@ -68,24 +70,26 @@ async function getMonitoringData(): Promise<MonitoringResponse> {
   }
 }
 
-export function ModelMonitoringDashboard() {
+const chartConfig = createChartConfig()
+const accuracyFormatter = (value: number) => `${(value * 100).toFixed(1)}%`
+const driftFormatter = (value: number) => value.toFixed(2)
+
+export const ModelMonitoringDashboard = memo(function ModelMonitoringDashboard() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['monitoring'],
     queryFn: getMonitoringData,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   })
 
-  if (isLoading) {
-    return <div>Loading monitoring data...</div>
-  }
+  // Downsample performance series — it may grow large in long-running deployments
+  const performanceData = useMemo(
+    () => (data ? sampleData(data.performance, CHART_TARGET_POINTS, 'accuracy') : []),
+    [data]
+  )
 
-  if (error) {
-    return <div>Error loading monitoring data: {(error as Error).message}</div>
-  }
-
-  if (!data) {
-    return <div>No monitoring data available</div>
-  }
+  if (isLoading) return <div>Loading monitoring data...</div>
+  if (error) return <div>Error loading monitoring data: {(error as Error).message}</div>
+  if (!data) return <div>No monitoring data available</div>
 
   const metrics = [
     { label: 'Prediction Accuracy', value: `${(data.metrics.accuracy * 100).toFixed(1)}%`, description: 'Latest end-to-end model accuracy' },
@@ -116,29 +120,54 @@ export function ModelMonitoringDashboard() {
       </div>
 
       <div style={{ display: 'grid', gap: 24, gridTemplateColumns: '1.5fr 1fr' }}>
-        <div style={{ minHeight: 320, padding: 20, borderRadius: 16, background: '#fff', boxShadow: '0 2px 14px rgba(0, 0, 0, 0.06)', border: '1px solid #ececec' }}>
+        <div
+          style={{
+            minHeight: 320,
+            padding: 20,
+            borderRadius: 16,
+            background: '#fff',
+            boxShadow: '0 2px 14px rgba(0, 0, 0, 0.06)',
+            border: '1px solid #ececec',
+          }}
+        >
           <h2 style={{ marginTop: 0 }}>Prediction Accuracy Trend</h2>
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={data.performance} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
+            <LineChart data={performanceData} {...chartConfig}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-              <YAxis domain={[0.7, 1.0]} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
-              <Tooltip formatter={(value: number) => `${(value * 100).toFixed(1)}%`} />
-              <Line type="monotone" dataKey="accuracy" stroke="#3f8efc" strokeWidth={3} dot={{ r: 4 }} />
+              <YAxis domain={[0.7, 1.0]} tickFormatter={accuracyFormatter} />
+              <Tooltip content={<VirtualizedTooltip formatter={accuracyFormatter} />} />
+              <Line
+                type="monotone"
+                dataKey="accuracy"
+                stroke="#3f8efc"
+                strokeWidth={3}
+                dot={{ r: 4 }}
+                isAnimationActive={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
-        <div style={{ minHeight: 320, padding: 20, borderRadius: 16, background: '#fff', boxShadow: '0 2px 14px rgba(0, 0, 0, 0.06)', border: '1px solid #ececec' }}>
+        <div
+          style={{
+            minHeight: 320,
+            padding: 20,
+            borderRadius: 16,
+            background: '#fff',
+            boxShadow: '0 2px 14px rgba(0, 0, 0, 0.06)',
+            border: '1px solid #ececec',
+          }}
+        >
           <h2 style={{ marginTop: 0 }}>Drift Detection</h2>
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={data.performance} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
+            <BarChart data={performanceData} {...chartConfig}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-              <YAxis tickFormatter={(value) => value.toFixed(2)} />
-              <Tooltip formatter={(value: number) => value.toFixed(2)} />
+              <YAxis tickFormatter={driftFormatter} />
+              <Tooltip content={<VirtualizedTooltip formatter={driftFormatter} />} />
               <Legend />
-              <Bar dataKey="drift" fill="#f65d5d" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="drift" fill="#f65d5d" radius={[8, 8, 0, 0]} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
           <p style={{ marginTop: 12, fontSize: 14, color: '#555' }}>
@@ -148,4 +177,4 @@ export function ModelMonitoringDashboard() {
       </div>
     </section>
   )
-}
+})
