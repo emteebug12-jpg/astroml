@@ -91,7 +91,7 @@ export function TransactionHistoryTable({
                       {formatAddress(tx.destinationAccount)}
                     </span>
                   ) : (
-                    <span style={{ color: '#999' }}>{t('transactions.table.placeholder')}</span>
+                    <span style={{ color: 'var(--text-muted, #999)' }}>{t('transactions.table.placeholder')}</span>
                   )}
                 </td>
                 <td style={td}>{tx.operationType}</td>
@@ -107,6 +107,7 @@ export function TransactionHistoryTable({
                     fontSize: '12px',
                     backgroundColor: tx.successful ? '#d4edda' : '#f8d7da',
                     color: tx.successful ? '#155724' : '#721c24',
+                    border: '1px solid transparent',
                   }}>
                     {tx.successful ? t('transactions.table.success') : t('transactions.table.failed')}
                   </span>
@@ -125,14 +126,14 @@ export function TransactionHistoryTable({
 
 const th: React.CSSProperties = { 
   textAlign: 'left', 
-  borderBottom: '2px solid #ddd', 
+  borderBottom: '2px solid var(--border-color, #ddd)', 
   padding: 12,
   fontWeight: 600,
   fontSize: '13px',
-  color: '#555'
+  color: 'var(--text-secondary, #555)'
 }
 const td: React.CSSProperties = { 
-  borderBottom: '1px solid #f1f1f1', 
+  borderBottom: '1px solid var(--border-light, #f1f1f1)', 
   padding: 10,
   fontSize: '13px'
 }

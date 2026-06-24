@@ -27,6 +27,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth.middleware import AuthMiddleware
+from api.config import settings
 from api.database import get_async_session_factory
 from api.routers import (
     accounts_router,
@@ -38,6 +39,7 @@ from api.routers import (
     models_router,
     monitoring_router,
     notifications_router,
+    onboarding_router,
     transactions_router,
     ws_router,
 )
@@ -132,9 +134,15 @@ app.include_router(loyalty_router)
 app.include_router(models_router)
 app.include_router(mentorship_router)
 app.include_router(notifications_router)
+app.include_router(onboarding_router)
 app.include_router(ws_router)
 
 
 @app.get("/health", tags=["ops"])
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/v1", tags=["ops"])
+async def api_root():
+    return {"version": settings.api_version, "status": "ok"}

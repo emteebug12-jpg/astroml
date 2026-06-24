@@ -35,7 +35,7 @@ export function ReferralInviteSection() {
         <input style={{ minWidth: 260 }} value={url} readOnly />
         <button onClick={copy}>{t('loyalty.referral.copy')}</button>
         <button onClick={share}>{t('loyalty.referral.share')}</button>
-        <div style={{ color: '#555' }}>
+        <div style={{ color: 'var(--text-secondary, #555)' }}>
           {t('loyalty.referral.stats', { invited: data?.invited ?? 0, rewards: data?.rewards ?? 0 })}
         </div>
       </div>

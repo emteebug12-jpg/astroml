@@ -125,8 +125,12 @@ class LoyaltySummaryOut(BaseModel):
 
 class ModelMetricsOut(BaseModel):
     accuracy: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
     f1: Optional[float] = None
+    f1_score: Optional[float] = None   # alias populated from f1 for compatibility
     auc: Optional[float] = None
+    auc_roc: Optional[float] = None    # alias populated from auc for compatibility
     drift_score: Optional[float] = None
     recorded_at: Optional[datetime] = None
 
@@ -134,6 +138,8 @@ class ModelMetricsOut(BaseModel):
 class PerformancePoint(BaseModel):
     date: str
     accuracy: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
     f1: Optional[float] = None
     auc: Optional[float] = None
 
@@ -431,3 +437,26 @@ class DigestEmailOut(BaseModel):
     period: str
     notifications_count: int
     generated_at: datetime
+
+
+# ─── Onboarding ────────────────────────────────────────────────────────────
+
+class OnboardingStepIn(BaseModel):
+    step: str
+
+
+class OnboardingChecklistItem(BaseModel):
+    step: str
+    label: str
+    completed: bool
+
+
+class OnboardingProgressOut(BaseModel):
+    github_username: str
+    checklist: List[OnboardingChecklistItem]
+    completed_count: int
+    total_steps: int
+    progress_pct: int
+    is_complete: bool
+    started_at: str
+    last_updated: str
