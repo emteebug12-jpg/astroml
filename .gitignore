@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.hypothesis/
 venv/
 .env
 # Rust build outputs
