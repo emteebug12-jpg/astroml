@@ -1,8 +1,18 @@
 import { lazy, Suspense, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ThemeToggle } from './components/ThemeToggle'
 import { useMediaQuery } from './hooks/useMediaQuery'
+import {
+  SkeletonModelMonitoring,
+  SkeletonLoyaltyDashboard,
+  SkeletonTransactionHistory,
+} from './components/Skeletons'
+import { LanguageSwitcher } from './components/i18n'
+import './styles/skeleton.css'
 
+// Lazy-load each dashboard section so the initial bundle is smaller and the
+// browser can start rendering the first panel before the others are parsed.
 const ModelMonitoringDashboard = lazy(() =>
   import('./components/ModelMonitoringDashboard/ModelMonitoringDashboard').then((m) => ({
     default: m.ModelMonitoringDashboard,
@@ -17,14 +27,6 @@ const TransactionHistoryPage = lazy(() =>
   import('./components/TransactionHistory').then((m) => ({ default: m.TransactionHistoryPage }))
 )
 
-function SectionFallback({ label }: { label: string }) {
-  return (
-    <div style={{ padding: 24, color: 'var(--text-muted, #888)', fontSize: 14 }}>
-      Loading {label}…
-    </div>
-  )
-}
-
 const sections = [
   { id: 'model-monitoring', label: 'Model Performance' },
   { id: 'loyalty', label: 'Loyalty Dashboard' },
@@ -32,6 +34,7 @@ const sections = [
 ]
 
 function NavBar() {
+  const { t } = useTranslation()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -51,7 +54,7 @@ function NavBar() {
       position: 'relative',
     }}>
       <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 24, fontWeight: 700 }}>
-        AstroML Dashboard
+        {t('app.title')}
       </h1>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {isMobile ? (
@@ -72,6 +75,7 @@ function NavBar() {
               {menuOpen ? '✕' : '☰'}
             </button>
             <ThemeToggle />
+            <LanguageSwitcher />
             {menuOpen && (
               <div style={{
                 position: 'absolute',
@@ -132,6 +136,7 @@ function NavBar() {
               ))}
             </div>
             <ThemeToggle />
+            <LanguageSwitcher />
           </>
         )}
       </div>
@@ -140,6 +145,7 @@ function NavBar() {
 }
 
 export default function App() {
+  const { t } = useTranslation()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
   return (
@@ -150,27 +156,28 @@ export default function App() {
       margin: '0 auto',
     }}>
       <NavBar />
-      <h1 id="model-monitoring">Model Performance Monitoring</h1>
+
+      <h1 id="model-monitoring">{t('app.title')}</h1>
       <ErrorBoundary boundary="Model Monitoring">
-        <Suspense fallback={<SectionFallback label="Model Monitoring" />}>
+        <Suspense fallback={<SkeletonModelMonitoring />}>
           <ModelMonitoringDashboard />
         </Suspense>
       </ErrorBoundary>
 
       <hr style={{ margin: isMobile ? '24px 0' : '40px 0', borderColor: 'var(--border-color, #ddd)' }} />
 
-      <h1 id="loyalty">Loyalty Dashboard</h1>
+      <h1 id="loyalty">{t('app.loyalty')}</h1>
       <ErrorBoundary boundary="Loyalty Dashboard">
-        <Suspense fallback={<SectionFallback label="Loyalty Dashboard" />}>
+        <Suspense fallback={<SkeletonLoyaltyDashboard />}>
           <LoyaltyDashboard />
         </Suspense>
       </ErrorBoundary>
 
       <hr style={{ margin: isMobile ? '24px 0' : '40px 0', borderColor: 'var(--border-color, #ddd)' }} />
 
-      <h1 id="transactions">Transaction History</h1>
+      <h1 id="transactions">{t('app.transactions')}</h1>
       <ErrorBoundary boundary="Transaction History">
-        <Suspense fallback={<SectionFallback label="Transaction History" />}>
+        <Suspense fallback={<SkeletonTransactionHistory />}>
           <TransactionHistoryPage />
         </Suspense>
       </ErrorBoundary>
