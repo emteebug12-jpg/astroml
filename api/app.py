@@ -38,6 +38,7 @@ from api.routers import (
     auth_router,
     backup_router,
     chat_router,
+    contact_router,
     contributors_router,
     errors_router,
     faq_router,
@@ -52,6 +53,7 @@ from api.routers import (
     transactions_router,
     validation_router,
     ws_router,
+    streaming_router,
 )
 from api.routers.monitoring import record_latency
 from api.routers.ws import poll_and_broadcast_transactions
@@ -143,6 +145,7 @@ app.include_router(auth_router)
 app.include_router(audit_router)
 app.include_router(rate_limit_router)
 app.include_router(errors_router)
+app.include_router(contact_router)
 app.include_router(transactions_router)
 app.include_router(fraud_router)
 app.include_router(accounts_router)
@@ -158,6 +161,7 @@ app.include_router(validation_router)
 app.include_router(backup_router)
 app.include_router(chat_router)
 app.include_router(ws_router)
+app.include_router(streaming_router)
 
 
 @app.get("/health", tags=["ops"])

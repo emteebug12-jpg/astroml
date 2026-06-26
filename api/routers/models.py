@@ -2,18 +2,12 @@
 
 Endpoints
 ---------
-GET     /api/v1/models              — List registered models
-POST    /api/v1/models              — Register a new model version
-GET     /api/v1/models/{model_id}   — Get a specific model
-PUT     /api/v1/models/{model_id}   — Update a model
-DELETE  /api/v1/models/{model_id}   — Delete a model
-POST    /api/v1/models/{model_id}/versions — Create a new version for a model
-GET     /api/v1/models/{model_id}/versions — List all versions of a model
-POST    /api/v1/models/{model_id}/versions/{version_id}/transition — Transition version status
-GET     /api/v1/models/{model_id}/versions/{version_id} — Get version details
-POST    /api/v1/models/compare     — Compare multiple models
-POST    /api/v1/models/{id}/activate — Activate a specific version
-GET     /api/v1/models/{id}/metrics  — Metrics history for a model version
+GET  /api/v1/models              — List registered models
+POST /api/v1/models              — Register a new model version
+POST /api/v1/models/{id}/activate — Activate a specific version
+GET  /api/v1/models/{id}/metrics  — Metrics history for a model version
+POST /api/v1/models/compare      — Compare multiple model versions
+GET  /api/v1/models/{id}/lineage  — Get lineage for a model version
 """
 from __future__ import annotations
 
@@ -21,7 +15,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
@@ -47,18 +41,15 @@ router = APIRouter(prefix="/api/v1/models", tags=["models"])
 MODEL_STORE_PATH = Path(os.environ.get("MODEL_STORE_PATH", "model_store"))
 
 
-@router.get("", response_model=ModelListResponse)
-def list_models(
-    db: Session = Depends(get_sync_db),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    name: Optional[str] = None,
-    status: Optional[str] = None,
-    owner: Optional[str] = None,
-    tags: Optional[list[str]] = Query(None),
-):
-    """List all registered model versions with pagination and filtering."""
-    query = select(ModelRegistry)
+class ModelOut(BaseModel):
+    id: int
+    name: str
+    version: str
+    path: str
+    metrics: Optional[dict[str, Any]]
+    status: str
+    parent_id: Optional[int]
+    created_at: datetime
 
     if name:
         query = query.where(ModelRegistry.name == name)
@@ -74,10 +65,41 @@ def list_models(
     count_query = select(func.count()).select_from(query.subquery())
     total = db.scalar(count_query) or 0
 
-    # Get paginated results
-    offset = (page - 1) * page_size
-    query = query.order_by(ModelRegistry.created_at.desc()).offset(offset).limit(page_size)
-    rows = db.scalars(query).all()
+class RegisterModelIn(BaseModel):
+    name: str
+    version: Optional[str] = None
+    path: str
+    metrics: Optional[dict[str, Any]] = None
+    parent_id: Optional[int] = None
+
+
+class CompareVersionsIn(BaseModel):
+    version_ids: List[int]
+
+
+class MetricDelta(BaseModel):
+    metric: str
+    values: Dict[int, Optional[float]]
+    delta: Optional[float]  # delta from first version
+    best: Optional[int]  # version id with best value (higher is better)
+    worst: Optional[int]  # version id with worst value
+
+
+class CompareVersionsOut(BaseModel):
+    versions: List[ModelOut]
+    metric_deltas: List[MetricDelta]
+
+
+class LineageNode(BaseModel):
+    id: int
+    name: str
+    version: str
+    metrics: Optional[dict[str, Any]]
+    created_at: datetime
+
+
+class LineageOut(BaseModel):
+    chain: List[LineageNode]
 
     return ModelListResponse(
         data=rows,
@@ -90,19 +112,14 @@ def list_models(
 @router.post("", response_model=ModelRegistryOut, status_code=status.HTTP_201_CREATED)
 def create_model(body: ModelRegistryIn, db: Session = Depends(get_sync_db)):
     """Register a new model version."""
-    # Check if name+version already exists
-    existing = db.scalar(
-        select(ModelRegistry).where(
-            ModelRegistry.name == body.name, ModelRegistry.version == body.version
-        )
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Model with name '{body.name}' and version '{body.version}' already exists",
-        )
-
-    dest_dir = MODEL_STORE_PATH / body.name / body.version
+    # Validate parent_id if provided
+    if body.parent_id is not None:
+        parent = db.scalar(select(ModelRegistry).where(ModelRegistry.id == body.parent_id))
+        if parent is None:
+            raise HTTPException(status_code=404, detail="Parent model not found")
+    
+    version = body.version or f"{body.name}_v{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    dest_dir = MODEL_STORE_PATH / body.name / version
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     src = Path(body.path)
@@ -121,7 +138,8 @@ def create_model(body: ModelRegistryIn, db: Session = Depends(get_sync_db)):
         tags=body.tags,
         mlflow_run_id=body.mlflow_run_id,
         metrics=body.metrics,
-        status=body.status or "inactive",
+        status="inactive",
+        parent_id=body.parent_id,
     )
     db.add(entry)
     db.commit()
@@ -328,96 +346,100 @@ def model_metrics(model_id: int, db: Session = Depends(get_sync_db)):
     }
 
 
-@router.post("/search", response_model=ModelListResponse)
-def search_models(body: ModelSearchIn, db: Session = Depends(get_sync_db)):
-    """Full-text search across models (name, version, owner, tags)."""
-    search_query = body.query.lower()
-    query = select(ModelRegistry)
-
-    # Search across relevant fields
-    conditions = []
-    conditions.append(func.lower(ModelRegistry.name).contains(search_query))
-    conditions.append(func.lower(ModelRegistry.version).contains(search_query))
-    if ModelRegistry.owner is not None:
-        conditions.append(func.lower(ModelRegistry.owner).contains(search_query))
+@router.post("/compare", response_model=CompareVersionsOut)
+def compare_versions(body: CompareVersionsIn, db: Session = Depends(get_sync_db)):
+    """Compare multiple model versions and generate a report with metrics deltas."""
+    if len(body.version_ids) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 version IDs are required")
+        
+    # Fetch all versions
+    versions = db.scalars(
+        select(ModelRegistry).where(ModelRegistry.id.in_(body.version_ids))
+    ).all()
     
-    # Combine conditions with OR
-    from sqlalchemy import or_
-    query = query.where(or_(*conditions))
+    # Validate all versions exist
+    found_ids = {v.id for v in versions}
+    missing_ids = [vid for vid in body.version_ids if vid not in found_ids]
+    if missing_ids:
+        raise HTTPException(status_code=404, detail=f"Model versions not found: {missing_ids}")
     
-    # Also search in tags if tags exist
-    # Note: JSON tag search is database-specific, but we'll implement a basic version
-    # For PostgreSQL, we could use jsonb functions, but let's keep it generic for now
-
-    # Get total count
-    count_query = select(func.count()).select_from(query.subquery())
-    total = db.scalar(count_query) or 0
-
-    # Get paginated results
-    offset = (body.page - 1) * body.page_size
-    query = query.order_by(ModelRegistry.created_at.desc()).offset(offset).limit(body.page_size)
-    rows = db.scalars(query).all()
-
-    return ModelListResponse(
-        data=rows,
-        page=body.page,
-        page_size=body.page_size,
-        total=total,
+    # Keep versions in the order requested
+    ordered_versions = []
+    for vid in body.version_ids:
+        ordered_versions.append(next(v for v in versions if v.id == vid))
+    
+    # Collect all unique metrics
+    all_metrics = set()
+    for v in ordered_versions:
+        if v.metrics:
+            all_metrics.update(v.metrics.keys())
+    
+    metric_deltas: List[MetricDelta] = []
+    first_version = ordered_versions[0]
+    
+    for metric in sorted(all_metrics):
+        values: Dict[int, Optional[float]] = {}
+        numeric_values: List[tuple[int, float]] = []
+        
+        for v in ordered_versions:
+            val = v.metrics.get(metric) if v.metrics else None
+            values[v.id] = val
+            if isinstance(val, (int, float)):
+                numeric_values.append((v.id, val))
+        
+        # Calculate delta from first version
+        delta = None
+        if numeric_values and first_version.id in values and isinstance(values[first_version.id], (int, float)):
+            first_val = values[first_version.id]
+            # Find last numeric value to calculate delta? Or use latest?
+            # Let's use the last value in the ordered list
+            last_numeric = next((val for (vid, val) in reversed(numeric_values)), None)
+            if last_numeric is not None:
+                delta = last_numeric - first_val
+        
+        # Find best and worst (higher is better assumption)
+        best = None
+        worst = None
+        if numeric_values:
+            numeric_values.sort(key=lambda x: x[1], reverse=True)
+            best = numeric_values[0][0]
+            worst = numeric_values[-1][0]
+        
+        metric_deltas.append(MetricDelta(
+            metric=metric,
+            values=values,
+            delta=delta,
+            best=best,
+            worst=worst,
+        ))
+    
+    return CompareVersionsOut(
+        versions=ordered_versions,
+        metric_deltas=metric_deltas,
     )
 
 
-@router.post("/{model_id}/tags", response_model=ModelRegistryOut)
-def update_model_tags(
-    model_id: int, body: ModelTagsUpdateIn, db: Session = Depends(get_sync_db)
-):
-    """Add or remove tags from a model."""
-    entry = db.scalar(select(ModelRegistry).where(ModelRegistry.id == model_id))
-    if entry is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
+@router.get("/{model_id}/lineage", response_model=LineageOut)
+def get_lineage(model_id: int, db: Session = Depends(get_sync_db)):
+    """Get the parent chain (lineage) for a model version."""
+    chain: List[LineageNode] = []
+    current_id: Optional[int] = model_id
     
-    current_tags = entry.tags or []
-    current_tags_set = set(current_tags)
+    while current_id is not None:
+        entry = db.scalar(select(ModelRegistry).where(ModelRegistry.id == current_id))
+        if entry is None:
+            if not chain:  # if first entry is not found
+                raise HTTPException(status_code=404, detail="Model not found")
+            break
+        
+        chain.append(LineageNode(
+            id=entry.id,
+            name=entry.name,
+            version=entry.version,
+            metrics=entry.metrics,
+            created_at=entry.created_at,
+        ))
+        
+        current_id = entry.parent_id
     
-    # Add tags
-    if body.add_tags:
-        for tag in body.add_tags:
-            current_tags_set.add(tag)
-    
-    # Remove tags
-    if body.remove_tags:
-        for tag in body.remove_tags:
-            if tag in current_tags_set:
-                current_tags_set.remove(tag)
-    
-    # Update entry
-    entry.tags = list(current_tags_set)
-    db.commit()
-    db.refresh(entry)
-    return entry
-
-
-@router.get("/by-tag/{tag}", response_model=ModelListResponse)
-def get_models_by_tag(
-    tag: str,
-    db: Session = Depends(get_sync_db),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-):
-    """Get all models that have a specific tag."""
-    query = select(ModelRegistry).where(ModelRegistry.tags.contains([tag]))
-    
-    # Get total count
-    count_query = select(func.count()).select_from(query.subquery())
-    total = db.scalar(count_query) or 0
-
-    # Get paginated results
-    offset = (page - 1) * page_size
-    query = query.order_by(ModelRegistry.created_at.desc()).offset(offset).limit(page_size)
-    rows = db.scalars(query).all()
-
-    return ModelListResponse(
-        data=rows,
-        page=page,
-        page_size=page_size,
-        total=total,
-    )
+    return LineageOut(chain=chain)

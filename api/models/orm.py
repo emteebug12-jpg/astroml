@@ -198,15 +198,15 @@ class ModelRegistry(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="inactive"
     )  # inactive | active | deprecated
+    parent_id: Mapped[Optional[int]] = mapped_column(
+        _ID, nullable=True
+    )  # Lineage: parent model version id
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("ix_model_registry_name_version", "name", "version", unique=True),
         Index("ix_model_registry_status", "status"),
-        Index("ix_model_registry_owner", "owner"),
-        Index("ix_model_registry_mlflow_run_id", "mlflow_run_id"),
-        Index("ix_model_registry_name", "name"),
-        Index("ix_model_registry_version", "version"),
+        Index("ix_model_registry_parent_id", "parent_id"),
     )
 
 
@@ -542,6 +542,27 @@ class AuditLog(Base):
         Index("ix_audit_logs_action", "action"),
         Index("ix_audit_logs_resource_type", "resource_type"),
         Index("ix_audit_logs_timestamp_action", "timestamp", "action"),
+    )
+
+
+class SupportTicket(Base):
+    """Support ticket generated from a contact-form submission (issue #305)."""
+
+    __tablename__ = "support_tickets"
+
+    id: Mapped[int] = mapped_column(_ID, primary_key=True, autoincrement=True)
+    reference: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
+    subject: Mapped[str] = mapped_column(String(200), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="open")
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_support_tickets_reference", "reference"),
+        Index("ix_support_tickets_email", "email"),
+        Index("ix_support_tickets_status", "status"),
     )
 
 
