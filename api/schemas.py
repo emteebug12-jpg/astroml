@@ -47,6 +47,13 @@ class FraudAlertsResponse(BaseModel):
     total: int
 
 
+class FraudExplanationOut(BaseModel):
+    alert_id: int
+    explanation: str
+    generated_in_ms: float
+    cached: bool
+
+
 class RiskPoint(BaseModel):
     date: str
     score: float
