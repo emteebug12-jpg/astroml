@@ -134,6 +134,11 @@ class ModelMetricsOut(BaseModel):
     auc_roc: Optional[float] = None    # alias populated from auc for compatibility
     drift_score: Optional[float] = None
     recorded_at: Optional[datetime] = None
+    
+    # LLM Tracking
+    llm_cost: Optional[float] = None
+    llm_prompt_tokens: Optional[int] = None
+    llm_completion_tokens: Optional[int] = None
 
 
 class PerformancePoint(BaseModel):
