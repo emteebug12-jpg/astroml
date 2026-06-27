@@ -535,3 +535,83 @@ class NormalizedTransaction(Base):
             postgresql_where=(receiver.isnot(None)),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Model Registry
+# ---------------------------------------------------------------------------
+
+class Model(Base):
+    """Machine learning model metadata for the model registry."""
+
+    __tablename__ = "models"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    framework: Mapped[str] = mapped_column(String(32), nullable=False)
+    task_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    versions: Mapped[list[ModelVersion]] = relationship(
+        back_populates="model",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("ix_models_framework", "framework"),
+        Index("ix_models_task_type", "task_type"),
+        Index("ix_models_is_active", "is_active"),
+        CheckConstraint(
+            "framework IN ('pytorch', 'tensorflow', 'sklearn', 'xgboost', 'lightgbm', 'custom')",
+            name="ck_models_framework",
+        ),
+        CheckConstraint(
+            "task_type IN ('classification', 'regression', 'anomaly_detection', 'clustering', 'custom')",
+            name="ck_models_task_type",
+        ),
+    )
+
+
+class ModelVersion(Base):
+    """Specific version of a machine learning model with artifacts and metrics."""
+
+    __tablename__ = "model_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    model_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("models.id"), nullable=False
+    )
+    version: Mapped[str] = mapped_column(String(32), nullable=False)
+    artifact_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    hyperparameters: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+    metrics: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="training")
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    deployed_at: Mapped[Optional[datetime]] = mapped_column()
+
+    # Relationships
+    model: Mapped[Model] = relationship(back_populates="versions")
+
+    __table_args__ = (
+        UniqueConstraint("model_id", "version", name="uq_model_versions_model_version"),
+        Index("ix_model_versions_model_id", "model_id"),
+        Index("ix_model_versions_status", "status"),
+        Index("ix_model_versions_created_at", "created_at"),
+        CheckConstraint(
+            "status IN ('training', 'trained', 'deployed', 'archived', 'failed')",
+            name="ck_model_versions_status",
+        ),
+    )
